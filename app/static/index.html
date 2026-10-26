@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Trade</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader</h1>
+  <nav>
+    <a href="/" class="current">Trade</a>
+    <a href="/activity">Activity</a>
+    <a href="/competitions">Competitions</a>
+  </nav>
+  <div class="row">
+    <a id="toAdmin" href="/admin" class="btn" hidden>Go to Admin Menu</a>
+    <span id="hdrUser" class="who-badge" hidden></span>
+    <input id="key" type="password" placeholder="Your API key (pt_...)" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<aside id="side" hidden>
+  <div class="side-head"><strong class="side-title">Portfolios</strong>
+    <button type="button" id="sideToggle" class="secondary side-toggle" aria-label="Collapse sidebar" title="Collapse sidebar">&laquo;</button></div>
+  <div id="sideList" class="side-list"></div>
+  <a class="side-link" href="/competitions">Join or create...</a>
+</aside>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="newKey" class="msg key-reveal" hidden>
+    <div><strong id="newKeyTitle"></strong> Your API key is shown <strong>only this once</strong>. Save it somewhere safe: your scripts need it, and an admin can't look it up.</div>
+    <div class="row" style="margin-top:8px"><code id="keyText" class="key-text"></code>
+      <button type="button" id="copyKey">Copy</button>
+      <button type="button" id="dismissKey" class="secondary">I've saved it</button></div>
+  </div>
+  <div id="signup" class="card">
+    <h2>New here? Create your account</h2>
+    <p class="muted" style="margin-top:0">Ask an admin for a sign-up code (each code works once), pick a username, and you get your API key.</p>
+    <form id="signupForm" class="row" autocomplete="off">
+      <input id="suName" placeholder="Choose a username" maxlength="32" autocomplete="off" spellcheck="false" aria-label="Username" required style="max-width:240px">
+      <input id="suCode" placeholder="Sign-up code" maxlength="40" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Sign-up code" required style="max-width:260px">
+      <button type="submit" id="suBtn">Create account</button>
+    </form>
+    <div id="suMsg" class="msg err" style="margin-top:12px" hidden></div>
+    <p class="muted" style="margin-bottom:0">Already have a key? Paste it at the top right and press Connect. Usernames are 3-32 letters, digits, _ or -.</p>
+  </div>
+  <div id="app" hidden>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2 id="who">Portfolio</h2>
+      </div>
+      <div id="compBanner" class="comp-banner" hidden></div>
+      <div class="stats">
+        <div class="stat"><div class="label" data-g="equity">Equity</div><div class="value" id="equity">-</div></div>
+        <div class="stat"><div class="label" data-g="return">Return</div><div class="value" id="ret">-</div></div>
+        <div class="stat"><div class="label" data-g="pnl">P&amp;L</div><div class="value" id="pnl">-</div></div>
+        <div class="stat"><div class="label" data-g="cash">Cash</div><div class="value" id="cash">-</div></div>
+        <div class="stat"><div class="label" data-g="free_cash">Free cash</div><div class="value" id="freeCash">-</div></div>
+        <div class="stat"><div class="label" data-g="max_dd">Max drawdown</div><div class="value" id="dd">-</div></div>
+      </div>
+    </div>
+    <div id="marginWarn" class="msg banner-warn" style="margin-bottom:16px" hidden>Margin warning: your cash no longer covers your short positions with a safe cushion. Cover some of your shorts or new orders that add risk will be rejected.<span id="liqNote"></span></div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Place a trade</h2>
+      <div class="tabs" id="assetTabs" role="tablist" aria-label="What to trade">
+        <button type="button" role="tab" data-asset="stock" class="active">Stocks &amp; ETFs</button>
+        <button type="button" role="tab" data-asset="option">Options</button>
+        <button type="button" role="tab" data-asset="future">Futures <span class="soon">soon</span></button>
+      </div>
+
+      <div id="optionPanel" hidden>
+        <div class="row" style="margin-bottom:10px">
+          <input id="chainSym" placeholder="Stock or ETF (e.g. SPY)" maxlength="21" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Underlying ticker" style="max-width:190px">
+          <span id="chainPrice" class="muted" style="min-width:104px"></span>
+          <button type="button" id="chainLoad" class="secondary">Load</button>
+          <select id="chainExp" aria-label="Expiry date" hidden></select>
+          <div class="seg" id="rightSeg" role="group" aria-label="Calls or puts" hidden>
+            <button type="button" data-right="C" class="active" data-g="opt_call">Calls</button>
+            <button type="button" data-right="P" data-g="opt_put">Puts</button>
+          </div>
+          <label class="muted" style="font-size:12px"><input type="checkbox" id="chainAll"> all strikes</label>
+        </div>
+        <div id="chainNote" class="note" style="margin:0 0 8px">Enter a stock to see its options. Click a row to pick that contract, then choose how many to buy below. One contract is 100 shares.</div>
+        <div class="chain-scroll"><table class="chain" id="chainTable" hidden>
+          <thead><tr><th data-g="opt_strike">Strike</th><th data-g="opt_bid">Bid</th><th data-g="opt_ask">Ask</th><th>Last</th><th data-g="opt_iv">IV</th><th data-g="opt_be">Break-even</th><th data-g="opt_money">vs stock</th></tr></thead>
+          <tbody id="chainBody"></tbody>
+        </table></div>
+      </div>
+
+      <div id="futurePanel" class="future-soon" hidden>
+        <strong>Futures are coming soon.</strong>
+        <p class="muted" style="margin:6px 0 0">Each futures contract has its own multiplier, margin and expiry dates, so they need their own support. If your club wants them, tell an admin which ones (for example ES, CL or GC).</p>
+      </div>
+
+      <div id="ticketBody">
+      <div class="ticket-grid">
+        <input id="sym" placeholder="Ticker (e.g. SPY)" maxlength="21" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Ticker">
+        <div class="seg" id="sideSeg" role="group" aria-label="Side">
+          <button type="button" data-side="buy" class="active">Buy</button>
+          <button type="button" data-side="sell">Sell</button>
+          <button type="button" data-side="short" class="shortonly">Short</button>
+          <button type="button" data-side="cover" class="shortonly">Cover</button>
+        </div>
+        <input id="qty" type="number" min="0" step="any" inputmode="decimal" placeholder="Quantity" aria-label="Quantity">
+        <button id="submit" class="buy" disabled>Buy</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="seg" id="typeSeg" role="group" aria-label="Order type">
+          <button type="button" data-type="market" class="active">Market</button>
+          <button type="button" data-type="limit">Limit</button>
+        </div>
+        <input id="limit" type="number" min="0" step="any" inputmode="decimal" placeholder="Limit price" aria-label="Limit price" style="max-width:160px" hidden>
+        <span id="stopRow" class="row" style="gap:8px">
+          <input id="stop" type="number" min="0" step="any" inputmode="decimal" placeholder="Stop price (optional)" aria-label="Stop price" style="max-width:200px">
+          <span class="muted" data-g="stop">Stop price</span>
+        </span>
+        <span id="limitHint" class="muted" data-g="limit_order" hidden>What is a limit order?</span>
+      </div>
+      <div class="ticket-info">
+        <span id="priceInfo" class="muted">Enter a ticker</span>
+        <span id="totalInfo"></span>
+        <span id="holdInfo" class="muted"></span>
+      </div>
+      </div>
+      <div id="tradeMsg" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h2>Positions</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="symbol">Symbol</th><th data-g="qty">Qty</th><th data-g="avg_cost">Avg cost</th><th data-g="price_pos">Price</th><th data-g="value">Value</th><th data-g="unrealized">Unrealized</th><th data-g="unrealized_pct">%</th><th data-g="stop">Stop</th></tr></thead>
+        <tbody id="positions"></tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Limit orders</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="time">Placed</th><th data-g="symbol">Symbol</th><th data-g="side">Side</th><th data-g="qty">Qty</th><th data-g="limit_price">Limit</th><th data-g="limit_status">Status</th><th></th></tr></thead>
+        <tbody id="limits"></tbody>
+      </table></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const SYMBOL_RE = /^[A-Z0-9^][A-Z0-9.\-=^]{0,20}$/;
+let portfolio = null;                         // the portfolio being viewed (from Shell)
+let side = "buy", orderType = "market", price = null, quote = null, quoteState = "empty"; // empty | checking | ok | invalid | error
+let quoteSeq = 0, quoteTimer = null, submitting = false;
+const $ = (id) => document.getElementById(id);
+const headers = () => Shell.headers();
+const refresh = () => Shell.refresh();
+
+// ---------- trade ticket ----------
+
+const symbol = () => $("sym").value.trim().toUpperCase();
+const limitValue = () => { const n = parseFloat($("limit").value); return Number.isFinite(n) && n > 0 ? n : null; };
+const stopValue = () => { const n = parseFloat($("stop").value); return Number.isFinite(n) && n > 0 ? n : null; };
+const quantity = () => { const n = parseFloat($("qty").value); return Number.isFinite(n) ? n : 0; };
+const heldQty = (s) => { const p = portfolio && portfolio.positions.find((x) => x.symbol === s); return p ? p.qty : 0; };
+
+const VERBS = { buy: "Bought", sell: "Sold", short: "Shorted", cover: "Covered" };
+const LABELS = { buy: "Buy", sell: "Sell", short: "Short", cover: "Cover" };
+
+// Mirrors the server's rules so the button only enables for orders that can work.
+// Returns an error string, or "" if the order looks fine.
+function stopProblem() {
+  const st = stopValue();
+  if (st == null || orderType !== "market" || (side !== "buy" && side !== "short") || price == null) return "";
+  if (side === "buy" && st >= price) return "stop must be below the price";
+  if (side === "short" && st <= price) return "stop must be above the price";
+  return "";
+}
+
+// What you would actually trade at: an option buys at the ask and sells at the bid
+function unitFor(sd) {
+  if (quote && quote.option) {
+    const px = sd === "buy" ? quote.ask : quote.bid;
+    if (px > 0) return px;
+  }
+  return price;
+}
+
+function sideProblem(s, q, total) {
+  if (quote && quote.option) {
+    if (side === "short" || side === "cover") return "options can only be bought or sold, not written";
+    if (Math.abs(q - Math.round(q)) > 1e-9) return "options trade in whole contracts";
+  }
+  const held = heldQty(s);
+  const free = portfolio ? portfolio.free_cash : Infinity;
+  if (side === "buy") {
+    if (held < 0) return `you are short ${-held}, use Cover`;
+    if (total > free + 1e-6) return portfolio && portfolio.short_value > 0 ? "exceeds your free cash" : "exceeds your cash";
+  } else if (side === "sell") {
+    if (held < 0) return `you are short ${-held}, use Cover`;
+    if (q > held + 1e-9) return `you only hold ${held}`;
+  } else if (side === "short") {
+    if (held > 0) return `you hold ${held} long, sell first`;
+    const margin = portfolio ? portfolio.short_margin : 0.5;
+    if (margin * total > free + 1e-6) return `needs ${usd(margin * total)} of free cash as margin`;
+  } else if (side === "cover") {
+    if (held >= 0) return "you have no short in " + s;
+    if (q > -held + 1e-9) return `you are only short ${-held}`;
+  }
+  return "";
+}
+
+function renderTicket() {
+  if (quoteState !== "ok") quote = null;
+  const s = symbol(), q = quantity();
+  const pi = $("priceInfo"), ti = $("totalInfo"), hi = $("holdInfo");
+  let ok = false;
+
+  if (quoteState === "empty") { pi.textContent = "Enter a ticker"; pi.className = "muted"; }
+  else if (quoteState === "checking") { pi.textContent = "Checking " + s + "..."; pi.className = "muted"; }
+  else if (quoteState === "invalid") { pi.textContent = "Invalid"; pi.className = "down big"; }
+  else if (quoteState === "error") { pi.textContent = "Price unavailable, try again"; pi.className = "down"; }
+  else if (quote && quote.option) {
+    pi.textContent = `${symLabel(s)}  ${usd(price)}` + (quote.bid > 0 || quote.ask > 0 ? `  (bid ${usd(quote.bid)} / ask ${usd(quote.ask)})` : "  (last trade)") + "  x100 shares";
+    pi.className = "big";
+  }
+  else { pi.textContent = s + " " + usd(price); pi.className = "big"; }
+
+  ti.textContent = ""; ti.className = "";
+  hi.textContent = "";
+  if (quoteState === "ok") {
+    const held = heldQty(s);
+    const pos = held < 0 ? "You are short " + (-held) : held > 0 ? "You hold " + held : "You hold none";
+    hi.textContent = pos + (portfolio ? " | Free cash " + usd(portfolio.free_cash) : "");
+    const lim = orderType === "limit" ? limitValue() : null;
+    if (s.startsWith("^")) {
+      ti.textContent = "Indices can't be traded - try an ETF like SPY, QQQ or DIA"; ti.className = "down big";
+    } else if (q > 0 && orderType === "limit" && lim == null) {
+      ti.textContent = "Enter a limit price"; ti.className = "muted";
+    } else if (q > 0) {
+      const unit = lim != null ? lim : unitFor(side);
+      const total = q * unit * (quote && quote.multiplier || 1);
+      ti.textContent = (lim != null ? "Up to " : "Total ") + usd(total);
+      ti.className = "big";
+      const problem = sideProblem(s, q, total);
+      if (problem) { ti.textContent += " (" + problem + ")"; ti.className = "down big"; }
+      else {
+        ok = true;
+        if (lim != null) {
+          const buying = side === "buy" || side === "cover";
+          const ref = unitFor(side);
+          const now = buying ? ref <= lim : ref >= lim;
+          ti.textContent += now ? " - fills now" : ` - rests until the price ${buying ? "falls to" : "rises to"} ${usd(lim)}`;
+        }
+      }
+    }
+  }
+  if (portfolio && !portfolio.trading_open) {
+    ok = false; ti.className = "down big";
+    ti.textContent = portfolio.competition && portfolio.competition.status === "upcoming"
+      ? `${portfolio.competition.name} opens ${fmtTime(portfolio.competition.start_ts)}` : "Trading is closed for this portfolio";
+  }
+  const sp = stopProblem();
+  if (sp && ok) { ti.textContent += " (" + sp + ")"; ti.className = "down big"; ok = false; }
+  $("stopRow").hidden = !((side === "buy" || side === "short") && orderType === "market");
+  $("limit").hidden = orderType !== "limit"; $("limitHint").hidden = orderType !== "limit";
+  const enabled = (!portfolio || portfolio.shorting_enabled) && asset !== "option";  // options: buy and sell only
+  document.querySelectorAll(".shortonly").forEach((b) => { b.hidden = !enabled; });
+  if (!enabled && (side === "short" || side === "cover")) setSide("buy");
+  const btn = $("submit");
+  btn.textContent = (orderType === "limit" ? "Limit " : "") + LABELS[side];
+  btn.className = side;
+  btn.disabled = !ok || submitting;
+}
+
+async function lookupQuote(silent) {
+  const s = symbol();
+  const seq = ++quoteSeq;
+  if (!s) { quoteState = "empty"; price = null; return renderTicket(); }
+  if (!SYMBOL_RE.test(s)) { quoteState = "invalid"; price = null; return renderTicket(); }
+  if (!silent) { quoteState = "checking"; price = null; renderTicket(); }
+  try {
+    const r = await api("/api/quote/" + encodeURIComponent(s), headers());
+    if (seq !== quoteSeq) return;             // a newer lookup superseded this one
+    price = r.price; quote = r; quoteState = "ok";
+  } catch (e) {
+    if (seq !== quoteSeq) return;
+    price = null;
+    quoteState = (e.status === 400 || e.status === 404) ? "invalid" : "error";
+  }
+  renderTicket();
+}
+
+$("sym").addEventListener("input", () => {
+  const el = $("sym"); el.value = el.value.toUpperCase().replace(/\s/g, "");
+  if (OPT_RE.test(el.value) && asset !== "option") setAsset("option");  // pasted a contract name
+  quoteSeq++;                                  // drop any lookup in flight
+  clearTimeout(quoteTimer);
+  price = null;
+  const s = symbol();
+  quoteState = !s ? "empty" : SYMBOL_RE.test(s) ? "checking" : "invalid";
+  renderTicket();
+  if (quoteState === "checking") quoteTimer = setTimeout(() => lookupQuote(false), 400);
+});
+$("qty").addEventListener("input", renderTicket);
+$("stop").addEventListener("input", renderTicket);
+$("limit").addEventListener("input", renderTicket);
+$("qty").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("submit").disabled) submitOrder(); });
+$("limit").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("submit").disabled) submitOrder(); });
+function setSide(next) {
+  side = next;
+  document.querySelectorAll("#sideSeg button").forEach((x) => x.classList.toggle("active", x.dataset.side === side));
+}
+document.querySelectorAll("#sideSeg button").forEach((b) => b.addEventListener("click", () => { setSide(b.dataset.side); renderTicket(); }));
+document.querySelectorAll("#typeSeg button").forEach((b) => b.addEventListener("click", () => {
+  orderType = b.dataset.type;
+  document.querySelectorAll("#typeSeg button").forEach((x) => x.classList.toggle("active", x.dataset.type === orderType));
+  renderTicket();
+}));
+$("submit").onclick = submitOrder;
+
+function showTradeMsg(text, isErr) {
+  const el = $("tradeMsg"); el.hidden = !text; el.textContent = text || ""; el.className = "msg" + (isErr ? " err" : "");
+}
+
+async function submitOrder() {
+  if (submitting || $("submit").disabled) return;
+  const s = symbol(), q = quantity(), sd = side, lim = orderType === "limit" ? limitValue() : null, mult0 = quote && quote.multiplier || 1;
+  submitting = true; renderTicket(); showTradeMsg("");
+  try {
+    const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).slice(0, 64);
+    const r = await api("/api/orders", headers(), {
+      method: "POST", body: JSON.stringify({ symbol: s, side: sd, qty: q, client_order_id: id, ...(lim != null ? { limit_price: lim } : stopValue() && (sd === "buy" || sd === "short") ? { stop_price: stopValue() } : {}) }),
+    });
+    let msg;
+    if (r.status === "open") {
+      msg = `Limit order placed: ${LABELS[sd]} ${r.qty} ${symLabel(r.symbol)} at ${usd(r.limit_price)} or better. It is checked about once a minute during market hours.`;
+    } else {
+      msg = `${VERBS[sd]} ${r.qty} ${symLabel(r.symbol)} @ ${usd(r.price)} (${usd(r.qty * r.price * mult0)})`;
+      if (sd === "sell" || sd === "cover") msg += `, realized ${usd(r.realized_pnl)}`;
+    }
+    showTradeMsg(msg, false);
+    $("qty").value = ""; $("stop").value = ""; $("limit").value = "";
+    await refresh();
+  } catch (e) {
+    showTradeMsg(e.message, true);
+  } finally {
+    submitting = false; renderTicket();
+  }
+}
+
+// ---------- trade tabs and the options chain ----------
+
+let asset = "stock", chainData = null, chainRight = "C", pickedContract = "";
+
+function setAsset(a, remember = true) {
+  if (a === "option" && portfolio && !portfolio.options_enabled) a = "stock";
+  asset = a;
+  document.querySelectorAll("#assetTabs button").forEach((x) => {
+    const on = x.dataset.asset === a;
+    x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("optionPanel").hidden = a !== "option";
+  $("futurePanel").hidden = a !== "future";
+  $("ticketBody").hidden = a === "future";
+  $("sym").placeholder = a === "option" ? "Pick a contract above" : "Ticker (e.g. SPY)";
+  $("qty").placeholder = a === "option" ? "Contracts" : "Quantity";
+  if (a === "option" && (side === "short" || side === "cover")) setSide("buy");
+  if (a === "stock" && OPT_RE.test(symbol())) { $("sym").value = ""; $("sym").dispatchEvent(new Event("input")); }
+  if (remember && a !== "future") safeSet(localStorage, "pt_asset", a);
+  renderTicket();
+}
+document.querySelectorAll("#assetTabs button").forEach((b) => b.addEventListener("click", () => setAsset(b.dataset.asset)));
+
+function pickContract(sym) {
+  pickedContract = sym;
+  $("sym").value = sym; setSide("buy");
+  orderType = "market";
+  document.querySelectorAll("#typeSeg button").forEach((x) => x.classList.toggle("active", x.dataset.type === orderType));
+  $("sym").dispatchEvent(new Event("input"));
+  document.querySelectorAll("#chainBody tr.chain-row").forEach((tr) => tr.classList.toggle("sel", tr.dataset.sym === sym));
+  $("qty").focus();
+}
+
+function chainNote(text, isErr) { const el = $("chainNote"); el.textContent = text; el.className = "note" + (isErr ? " err" : ""); }
+
+async function loadExpiries() {
+  const u = $("chainSym").value.trim().toUpperCase();
+  if (!SYMBOL_RE.test(u)) { chainNote("Enter a stock or ETF ticker like SPY", true); return; }
+  chainNote("Loading " + u + " options...", false); $("chainTable").hidden = true; $("chainExp").hidden = true; $("rightSeg").hidden = true;
+  try {
+    const r = await api("/api/options/" + encodeURIComponent(u) + "/expiries", headers());
+    const sel = $("chainExp"); sel.innerHTML = "";
+    for (const d of r.expiries) {
+      const days = Math.max(0, Math.round((new Date(d + "T16:00:00") - Date.now()) / 86400000));
+      sel.insertAdjacentHTML("beforeend", `<option value="${esc(d)}">${esc(d)} (${days}d)</option>`);
+    }
+    sel.hidden = false; sel.dataset.u = r.underlying; $("rightSeg").hidden = false;
+    await loadChain();
+  } catch (e) { chainNote(e.message, true); }
+}
+
+async function loadChain() {
+  const sel = $("chainExp"), u = sel.dataset.u;
+  if (!u || !sel.value) return;
+  chainNote("Loading " + u + " " + sel.value + "...", false);
+  try {
+    chainData = await api("/api/options/" + encodeURIComponent(u) + "?expiry=" + encodeURIComponent(sel.value), headers());
+    renderChain();
+  } catch (e) { chainNote(e.message, true); $("chainTable").hidden = true; }
+}
+
+// One list at a time (calls or puts), strike by strike, with a line marking where the stock is.
+function renderChain() {
+  const d = chainData; if (!d) return;
+  const spot = d.underlying_price;
+  let rows = (chainRight === "C" ? d.calls : d.puts).slice().sort((a, b) => a.strike - b.strike);
+  if (!$("chainAll").checked && spot != null && rows.length > 25) {
+    let at = 0;
+    rows.forEach((o, i) => { if (Math.abs(o.strike - spot) < Math.abs(rows[at].strike - spot)) at = i; });
+    rows = rows.slice(Math.max(0, at - 12), at + 13);
+  }
+  const px = (v) => (v > 0 ? usd(v) : "-");
+  const money = (o) => {
+    if (spot == null) return "";
+    const p = ((chainRight === "C" ? spot - o.strike : o.strike - spot) / spot) * 100;
+    return Math.abs(p) < 0.25 ? "at the money" : p > 0 ? `ITM ${p.toFixed(1)}%` : `OTM ${(-p).toFixed(1)}%`;
+  };
+  // Stock price at expiry where buying at the ask comes out even, and how far that is from the stock now
+  const be = (o) => {
+    if (!(o.ask > 0)) return "-";
+    const v = chainRight === "C" ? o.strike + o.ask : Math.max(o.strike - o.ask, 0);
+    const p = spot ? ` <span class="muted">(${v >= spot ? "+" : ""}${(((v - spot) / spot) * 100).toFixed(1)}%)</span>` : "";
+    return usd(v) + p;
+  };
+  const marker = `<tr class="spot-row"><td colspan="7">${esc(d.underlying)} is at ${usd(spot)}</td></tr>`;
+  const body = $("chainBody"); body.innerHTML = "";
+  let marked = spot == null;
+  for (const o of rows) {
+    if (!marked && o.strike > spot) { body.insertAdjacentHTML("beforeend", marker); marked = true; }
+    body.insertAdjacentHTML("beforeend",
+      `<tr class="chain-row${o.in_the_money ? " itm" : ""}${o.symbol === pickedContract ? " sel" : ""}" data-sym="${esc(o.symbol)}" tabindex="0"><td class="strike">${usd(o.strike)}</td><td>${px(o.bid)}</td><td>${px(o.ask)}</td><td>${px(o.last)}</td><td>${o.implied_vol > 0 ? (o.implied_vol * 100).toFixed(0) + "%" : "-"}</td><td>${be(o)}</td><td class="muted">${money(o)}</td></tr>`);
+  }
+  if (!marked) body.insertAdjacentHTML("beforeend", marker);
+  if (spot != null && $("chainSym").value.trim().toUpperCase() === d.underlying) setChainPrice(`${d.underlying} ${usd(spot)}`, "big");
+  $("chainTable").hidden = false;
+  chainNote(`${d.underlying} ${d.expiry} ${chainRight === "C" ? "calls" : "puts"}. Prices are per share and one contract is 100 shares, so a $3.00 price costs $300. You pay the Ask to buy and get the Bid to sell. Break-even is the stock price at expiry where buying at the ask comes out even. Shaded rows are in the money.`, false);
+  applyGlossary($("optionPanel"));
+}
+
+$("chainLoad").onclick = loadExpiries;
+$("chainSym").addEventListener("keydown", (e) => { if (e.key === "Enter") loadExpiries(); });
+// Shows the stock's price as soon as a valid ticker is typed, like the stock ticket does
+let chainQuoteSeq = 0, chainQuoteTimer = null;
+function setChainPrice(text, klass) { const el = $("chainPrice"); el.textContent = text; el.className = klass || "muted"; }
+$("chainSym").addEventListener("input", () => {
+  const el = $("chainSym"); el.value = el.value.toUpperCase().replace(/\s/g, "");
+  const u = el.value, seq = ++chainQuoteSeq;
+  clearTimeout(chainQuoteTimer);
+  if (!u) return setChainPrice("");
+  if (!SYMBOL_RE.test(u)) return setChainPrice("Invalid", "down big");
+  if (OPT_RE.test(u)) return setChainPrice("Enter the stock, not a contract", "down");
+  setChainPrice("Checking...", "muted");
+  chainQuoteTimer = setTimeout(async () => {
+    try {
+      const r = await api("/api/quote/" + encodeURIComponent(u), headers());
+      if (seq === chainQuoteSeq) setChainPrice(`${u} ${usd(r.price)}`, "big");
+    } catch (e) {
+      if (seq === chainQuoteSeq) setChainPrice(e.status === 400 || e.status === 404 ? "Invalid" : "Price unavailable", "down big");
+    }
+  }, 400);
+});
+$("chainExp").addEventListener("change", loadChain);
+$("chainAll").addEventListener("change", renderChain);
+document.querySelectorAll("#rightSeg button").forEach((b) => b.addEventListener("click", () => {
+  chainRight = b.dataset.right;
+  document.querySelectorAll("#rightSeg button").forEach((x) => x.classList.toggle("active", x.dataset.right === chainRight));
+  renderChain();
+}));
+$("chainBody").addEventListener("click", (e) => { const tr = e.target.closest("tr.chain-row"); if (tr) pickContract(tr.dataset.sym); });
+$("chainBody").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const tr = e.target.closest("tr.chain-row"); if (tr) { e.preventDefault(); pickContract(tr.dataset.sym); }
+});
+
+// ---------- limit orders ----------
+
+function renderLimits(list) {
+  const el = $("limits"); el.innerHTML = "";
+  if (!list.length) { el.innerHTML = '<tr><td colspan="7" class="muted">No limit orders</td></tr>'; return; }
+  for (const r of list) {
+    const why = r.status === "rejected" && r.reason ? ` title="${esc(r.reason)}"` : "";
+    const stat = r.status === "rejected" ? `rejected${r.reason ? " (" + esc(r.reason) + ")" : ""}` : esc(r.status);
+    el.insertAdjacentHTML("beforeend",
+      `<tr><td>${esc(fmtTime(r.ts))}</td><td>${symCell(r.symbol)}</td><td class="${{ buy: "up", sell: "down", short: "short-c", cover: "cover-c" }[r.side]}">${esc(r.side)}</td><td>${esc(r.qty)}</td><td>${usd(r.limit_price)}</td><td${why}>${r.status === "open" ? '<span class="live-dot"></span>' : ""}${stat}</td><td>${r.status === "open" ? `<button type="button" class="secondary" data-cancel="${esc(r.id)}">Cancel</button>` : ""}</td></tr>`);
+  }
+}
+
+$("limits").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-cancel]"); if (!b) return;
+  b.disabled = true;
+  try {
+    await api("/api/open-orders/" + encodeURIComponent(b.dataset.cancel), headers(), { method: "DELETE" });
+    showTradeMsg("Limit order cancelled", false);
+    await refresh();
+  } catch (err) { showTradeMsg(err.message, true); await refresh(); }
+});
+
+// ---------- stops on open positions ----------
+
+$("positions").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const sym = b.dataset.sym;
+  let val = null;
+  if (b.dataset.act === "set") {
+    const inp = $("positions").querySelector(`.stop-in[data-sym="${CSS.escape(sym)}"]`);
+    val = parseFloat(inp.value);
+    if (!Number.isFinite(val) || val <= 0) { showTradeMsg("Enter a stop price for " + sym, true); return; }
+  }
+  b.disabled = true;
+  try {
+    await api("/api/positions/" + encodeURIComponent(sym) + "/stop", headers(), { method: "PUT", body: JSON.stringify({ stop_price: val }) });
+    showTradeMsg(val == null ? `Cleared the stop on ${sym}` : `Stop on ${sym} set at ${usd(val)}`, false);
+    await refresh();
+  } catch (err) { showTradeMsg(err.message, true); b.disabled = false; }
+});
+
+// ---------- dashboard ----------
+
+function renderPositions(p) {
+    const pos = $("positions");
+    const ae = document.activeElement;  // keep a stop price the member is typing through the refresh
+    const typing = ae && ae.classList && ae.classList.contains("stop-in") ? { sym: ae.dataset.sym, val: ae.value } : null;
+    pos.innerHTML = "";
+    if (!p.positions.length) pos.innerHTML = '<tr><td colspan="8" class="muted">No open positions</td></tr>';
+    for (const r of p.positions) {
+      pos.insertAdjacentHTML("beforeend",
+        `<tr><td>${symCell(r.symbol)}${r.side === "short" ? '<span class="short-tag">short</span>' : ""}${r.price_stale ? ' <span class="muted">(stale)</span>' : ""}</td><td>${esc(r.qty)}</td><td>${usd(r.avg_cost)}</td><td>${usd(r.price)}</td><td>${usd(r.market_value)}</td><td class="${cls(r.unrealized_pnl)}">${usd(r.unrealized_pnl)}</td><td class="${cls(r.unrealized_pnl_pct)}">${pct(r.unrealized_pnl_pct)}</td><td class="stop-cell"><input class="stop-in" type="number" min="0" step="any" inputmode="decimal" data-sym="${esc(r.symbol)}" placeholder="none" value="${r.stop_price == null ? "" : esc(r.stop_price)}" aria-label="Stop price for ${esc(r.symbol)}"> <button type="button" class="secondary" data-act="set" data-sym="${esc(r.symbol)}">Set</button>${r.stop_price == null ? "" : ` <button type="button" class="secondary" data-act="clear" data-sym="${esc(r.symbol)}">Clear</button>`}</td></tr>`);
+    }
+    if (typing) {
+      const el = pos.querySelector(`.stop-in[data-sym="${CSS.escape(typing.sym)}"]`);
+      if (el) { el.value = typing.val; el.focus(); }
+    }
+
+}
+
+async function onData({ p }) {
+  portfolio = p;
+  const limits = await api("/api/open-orders?status=all&limit=15", headers());
+  document.querySelector('#assetTabs [data-asset="option"]').hidden = !p.options_enabled;
+  if (!p.options_enabled && asset === "option") setAsset("stock", false);
+  renderPositions(p);
+  renderLimits(limits);
+  applyGlossary($("limits"));
+  renderTicket();
+}
+
+// ---------- sign up ----------
+
+$("signupForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = $("suName").value.trim(), code = $("suCode").value.trim();
+  const msg = $("suMsg"); msg.hidden = true;
+  $("suBtn").disabled = true;
+  try {
+    const r = await api("/api/register", {}, { method: "POST", body: JSON.stringify({ username, invite_code: code }) });
+    $("suName").value = ""; $("suCode").value = "";
+    $("newKeyTitle").textContent = `Welcome, ${r.username}!`;
+    $("keyText").textContent = r.api_key;
+    $("newKey").hidden = false;
+    $("key").value = r.api_key;
+    Shell.connect();                         // signs in with the new key and keeps it in this browser
+  } catch (err) { msg.textContent = err.message; msg.hidden = false; }
+  finally { $("suBtn").disabled = false; }
+});
+$("copyKey").onclick = async () => { $("copyKey").textContent = (await copyText($("keyText").textContent)) ? "Copied" : "Select the key and copy it"; };
+$("dismissKey").onclick = () => { $("newKey").hidden = true; $("keyText").textContent = ""; };
+
+if (safeGet(localStorage, "pt_asset") === "option") setAsset("option", false); else renderTicket();
+Shell.start({
+  onData,
+  onTick: () => { if (symbol()) lookupQuote(true); },
+  onSwitch: () => showTradeMsg(""),
+  onDisconnect: () => { portfolio = null; },
+});
+</script>
+</body>
+</html>

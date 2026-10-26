@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Activity</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader</h1>
+  <nav>
+    <a href="/">Trade</a>
+    <a href="/activity" class="current">Activity</a>
+    <a href="/competitions">Competitions</a>
+  </nav>
+  <div class="row">
+    <a id="toAdmin" href="/admin" class="btn" hidden>Go to Admin Menu</a>
+    <span id="hdrUser" class="who-badge" hidden></span>
+    <input id="key" type="password" placeholder="Your API key (pt_...)" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<aside id="side" hidden>
+  <div class="side-head"><strong class="side-title">Portfolios</strong>
+    <button type="button" id="sideToggle" class="secondary side-toggle" aria-label="Collapse sidebar" title="Collapse sidebar">&laquo;</button></div>
+  <div id="sideList" class="side-list"></div>
+  <a class="side-link" href="/competitions">Join or create...</a>
+</aside>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="app" hidden>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2 id="who">Portfolio</h2>
+      </div>
+      <div id="compBanner" class="comp-banner" hidden></div>
+      <div class="stats">
+        <div class="stat"><div class="label" data-g="equity">Equity</div><div class="value" id="equity">-</div></div>
+        <div class="stat"><div class="label" data-g="return">Return</div><div class="value" id="ret">-</div></div>
+        <div class="stat"><div class="label" data-g="pnl">P&amp;L</div><div class="value" id="pnl">-</div></div>
+        <div class="stat"><div class="label" data-g="cash">Cash</div><div class="value" id="cash">-</div></div>
+        <div class="stat"><div class="label" data-g="free_cash">Free cash</div><div class="value" id="freeCash">-</div></div>
+        <div class="stat"><div class="label" data-g="max_dd">Max drawdown</div><div class="value" id="dd">-</div></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2>Equity curve <span class="muted" style="text-transform:none;letter-spacing:0">(updates every minute)</span></h2>
+        <div id="range"></div>
+      </div>
+      <div class="chart-box"><canvas id="chart"></canvas></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Recent orders</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="time">Time</th><th data-g="symbol">Symbol</th><th data-g="side">Side</th><th data-g="qty">Qty</th><th data-g="price_fill">Price</th><th data-g="realized">Realized P&amp;L</th></tr></thead>
+        <tbody id="orders"></tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>Splits and dividends</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="ex_date">Ex-date</th><th data-g="symbol">Symbol</th><th class="l" data-g="event">Event</th><th class="l" data-g="event_detail">Details</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const range = makeRange(byId("range"), "pt_range_user", () => loadCurve());
+let chart = null;
+
+async function loadCurve() {
+  if (!Shell.key) return;
+  try { drawChart(await api("/api/equity" + range.query(), Shell.headers())); }
+  catch (e) { Shell.status(e.message, true); }
+}
+
+function drawChart(curve) {
+  if (typeof Chart === "undefined") return; // CDN blocked or offline: the rest of the page still works
+  const data = curve.map((p) => ({ x: p.ts * 1000, y: p.equity }));
+  if (!chart) {
+    chart = new Chart($("chart"), {
+      type: "line",
+      data: { datasets: [{ data, borderColor: PALETTE[0], borderWidth: 2, pointRadius: 0, tension: 0.1 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { title: (i) => new Date(i[0].parsed.x).toLocaleString(), label: (i) => usd(i.raw.y) } } },
+        scales: {
+          x: { type: "linear", ticks: { callback: timeTick, maxTicksLimit: 6 } },
+          y: { ticks: { callback: (v) => usd(v) } },
+        },
+      },
+    });
+  } else {
+    chart.data.datasets[0].data = data; chart.update();
+  }
+}
+
+
+async function onData() {
+  const h = Shell.headers();
+  const [curve, orders, events] = await Promise.all([
+    api("/api/equity" + range.query(), h), api("/api/orders?limit=100", h), api("/api/corporate-actions?limit=50", h),
+  ]);
+  drawChart(curve);
+  const o = $("orders"); o.innerHTML = "";
+  if (!orders.length) o.innerHTML = '<tr><td colspan="6" class="muted">No orders yet</td></tr>';
+  for (const r of orders) {
+    o.insertAdjacentHTML("beforeend",
+      `<tr><td>${esc(fmtTime(r.ts))}</td><td>${symCell(r.symbol)}</td><td class="${{ buy: "up", sell: "down", short: "short-c", cover: "cover-c" }[r.side]}">${esc(r.side)}${orderTag(r)}</td><td>${esc(r.qty)}</td><td>${usd(r.price)}</td><td class="${cls(r.realized_pnl)}">${r.side === "sell" || r.side === "cover" ? usd(r.realized_pnl) : "-"}</td></tr>`);
+  }
+  const ev = $("events"); ev.innerHTML = "";
+  if (!events.length) ev.innerHTML = '<tr><td colspan="4" class="muted">None yet</td></tr>';
+  for (const r of events) {
+    const [name, detail] = eventText(r);
+    ev.insertAdjacentHTML("beforeend",
+      `<tr><td>${esc(r.ex_date)}</td><td>${esc(r.symbol)}</td><td class="l">${esc(name)}</td><td class="l">${esc(detail)}</td></tr>`);
+  }
+  applyGlossary(o);
+}
+
+Shell.start({ onData });
+</script>
+</body>
+</html>

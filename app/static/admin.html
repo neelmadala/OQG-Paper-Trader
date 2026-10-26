@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Admin Overview</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader - Admin</h1>
+  <nav>
+    <a href="/admin" class="current">Overview</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/competitions">Competitions</a>
+  </nav>
+  <div class="row">
+    <a href="/" class="btn">Go to User Menu</a>
+    <span id="adminWho" class="who-badge"></span>
+    <input id="token" type="password" placeholder="Admin token or admin API key" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="app" hidden>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2>Return by trader <span class="muted" style="text-transform:none;letter-spacing:0">(updates every minute)</span></h2>
+        <div class="row">
+          <label class="row" style="gap:6px"><span class="muted">Show</span><select id="scope" aria-label="Which portfolios to show"></select></label>
+          <div id="range"></div>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart"></canvas></div>
+      <div id="chartNote" class="note" hidden>Dashed lines show the time before a trader joined: they are held at 0% so everyone starts on the same date. Dots mark each trader's real join date (hover for details).</div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2 id="rowsTitle">All portfolios</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="rank">#</th><th data-g="trader" class="l">Trader</th><th class="l" data-g="portfolio">Portfolio</th><th data-g="joined">Joined</th><th data-g="equity">Equity</th><th data-g="return">Return</th><th data-g="max_dd">Max DD</th><th data-g="cash">Cash</th><th data-g="trades">Trades</th><th data-g="win_rate">Win rate</th><th data-g="positions" class="l">Positions</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h2>Create account</h2>
+      <div class="row">
+        <input id="newuser" placeholder="username" maxlength="32">
+        <button id="create">Create</button>
+      </div>
+      <div id="created" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const headers = () => AdminShell.headers();
+let chart = null;
+let scope = safeGet(sessionStorage, "pt_admin_scope") || "main";   // main | all | a competition id
+const range = makeRange(byId("range"), "pt_range_admin", () => loadCurves());
+const scopeQS = (first) => (first ? "?" : "&") + "scope=" + encodeURIComponent(scope);
+
+async function onData() {
+  const [rows, curves, comps] = await Promise.all([
+    api("/api/admin/portfolios" + scopeQS(true), headers()), api("/api/admin/curves" + range.query() + scopeQS(!range.query()), headers()),
+    api("/api/admin/competitions", headers()),
+  ]);
+  const sel = $("scope"); sel.innerHTML = "";
+  sel.insertAdjacentHTML("beforeend", '<option value="main">Everyone - main portfolios</option>');
+  for (const c of comps) sel.insertAdjacentHTML("beforeend", `<option value="${esc(c.id)}">${esc(c.name)}</option>`);
+  sel.insertAdjacentHTML("beforeend", '<option value="all">Every portfolio</option>');
+  if (![...sel.options].some((o) => o.value === scope)) scope = "main";  // the competition was deleted
+  sel.value = scope;
+  const cur = comps.find((c) => String(c.id) === String(scope));
+  $("rowsTitle").textContent = scope === "main" ? "Main portfolios" : scope === "all" ? "Every portfolio" : `Competition: ${cur ? cur.name : scope}`;
+  const tb = $("rows"); tb.innerHTML = "";
+  if (!rows.length) tb.innerHTML = '<tr><td colspan="12" class="muted">No portfolios here yet</td></tr>';
+  for (const r of rows) {
+    const held = r.positions.map((p) => `${esc(p.symbol)} ${esc(p.qty)}${p.side === "short" ? " (short)" : ""}`).join(", ") || "-";
+    tb.insertAdjacentHTML("beforeend",
+      `<tr><td>${r.rank}</td><td class="l">${esc(r.username)}${r.frozen ? ' <span class="muted">(final)</span>' : ""}</td><td class="l">${esc(r.portfolio)}</td><td>${esc(fmtTime(r.created_at))}</td><td>${usd(r.equity)}</td><td class="${cls(r.return_pct)}">${pct(r.return_pct)}</td><td>${r.max_drawdown_pct.toFixed(2)}%</td><td>${usd(r.cash)}</td><td>${r.trades}</td><td>${r.win_rate_pct == null ? "-" : r.win_rate_pct + "%"}</td><td class="l" style="white-space:normal">${held}</td><td><button class="danger" data-reset="${r.portfolio_id}" data-name="${esc(r.username)} / ${esc(r.portfolio)}">Reset</button>${r.competition_id ? ` <button class="danger" data-remove="${r.portfolio_id}" data-comp="${r.competition_id}" data-name="${esc(r.username)}">Remove</button>` : ""}</td></tr>`);
+  }
+  drawChart(curves);
+}
+
+async function loadCurves() {
+  if (!AdminShell.token) return;
+  try { drawChart(await api("/api/admin/curves" + range.query() + scopeQS(!range.query()), headers())); }
+  catch (e) { AdminShell.status(e.message, true); }
+}
+
+function drawChart(curves) {
+  $("chartNote").hidden = !curves.some((c) => c.points.some((p) => p.synthetic));
+  if (typeof Chart === "undefined") return; // CDN blocked or offline: the rest of the page still works
+  const datasets = curves.map((c, i) => {
+    const data = c.points.map((p) => ({ x: p.ts * 1000, y: p.return_pct, synthetic: !!p.synthetic, created: !!p.created }));
+    const color = PALETTE[i % PALETTE.length];
+    return {
+      label: c.username, data, createdAt: c.created_at,
+      borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.1,
+      pointRadius: (ctx) => (data[ctx.dataIndex] && data[ctx.dataIndex].created ? 5 : 0),
+      pointHoverRadius: 5,
+      segment: { borderDash: (ctx) => (data[ctx.p0DataIndex] && data[ctx.p0DataIndex].synthetic ? [6, 4] : undefined) },
+    };
+  });
+  if (!chart) {
+    chart = new Chart($("chart"), {
+      type: "line", data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+        interaction: { mode: "nearest", intersect: false },
+        plugins: { tooltip: { callbacks: {
+          title: (i) => new Date(i[0].raw.x).toLocaleString(),
+          label: (i) => {
+            const r = i.raw; let s = `${i.dataset.label}: ${pct(r.y)}`;
+            if (r.synthetic) s += " (before joining, held at 0%)";
+            if (r.created) {
+              s += Math.abs(r.x / 1000 - i.dataset.createdAt) < 5
+                ? ` - joined ${new Date(i.dataset.createdAt * 1000).toLocaleString()}`
+                : " - portfolio was reset here";
+            }
+            return s;
+          },
+        } } },
+        scales: { x: { type: "linear", ticks: { callback: timeTick, maxTicksLimit: 6 } }, y: { ticks: { callback: (v) => v + "%" } } },
+      },
+    });
+  } else { chart.data.datasets = datasets; chart.update(); }
+}
+
+
+$("scope").addEventListener("change", () => { scope = $("scope").value; safeSet(sessionStorage, "pt_admin_scope", scope); AdminShell.refresh(); });
+
+$("create").onclick = async () => {
+  const name = $("newuser").value.trim(); if (!name) return;
+  try {
+    const r = await api("/api/admin/users", headers(), { method: "POST", body: JSON.stringify({ username: name }) });
+    const el = $("created"); el.hidden = false; el.className = "msg";
+    el.textContent = `API key for ${r.username} (shown once): ${r.api_key}`;
+    $("newuser").value = ""; AdminShell.refresh();
+  } catch (e) { AdminShell.status(e.message, true); }
+};
+
+$("rows").addEventListener("click", async (e) => {
+  const rs = e.target.closest("button[data-reset]"), rm = e.target.closest("button[data-remove]");
+  try {
+    if (rs && confirm(`Reset ${rs.dataset.name}? This deletes its orders, positions and history.`)) {
+      await api(`/api/admin/portfolios/${rs.dataset.reset}/reset`, headers(), { method: "POST" }); AdminShell.refresh();
+    }
+    if (rm && confirm(`Remove ${rm.dataset.name} from this competition? Their portfolio and history here are deleted.`)) {
+      await api(`/api/admin/competitions/${rm.dataset.comp}/members/${rm.dataset.remove}`, headers(), { method: "DELETE" }); AdminShell.refresh();
+    }
+  } catch (err) { AdminShell.status(err.message, true); }
+});
+
+AdminShell.start({ onData });
+</script>
+</body>
+</html>

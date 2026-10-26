@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Admin Competitions</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader - Admin</h1>
+  <nav>
+    <a href="/admin">Overview</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/competitions" class="current">Competitions</a>
+  </nav>
+  <div class="row">
+    <a href="/" class="btn">Go to User Menu</a>
+    <span id="adminWho" class="who-badge"></span>
+    <input id="token" type="password" placeholder="Admin token or admin API key" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="app" hidden>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Competitions</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="l">Name</th><th class="l" data-g="join_code">Join code</th><th class="l" data-g="comp_status">Status</th><th class="l">Dates</th><th>Cash</th><th class="l">Rules</th><th>Members</th><th></th></tr></thead>
+        <tbody id="comps"></tbody>
+      </table></div>
+      <form id="compForm" class="comp-form" autocomplete="off">
+        <input id="cName" placeholder="Competition name" maxlength="40" required aria-label="Competition name">
+        <input id="cCash" type="number" min="1" step="any" placeholder="Starting cash" aria-label="Starting cash" style="max-width:150px">
+        <label class="muted">Opens <input id="cStart" type="datetime-local" aria-label="Start"></label>
+        <label class="muted">Closes <input id="cEnd" type="datetime-local" aria-label="End"></label>
+        <label class="muted"><input id="cOpt" type="checkbox" checked> options</label>
+        <label class="muted"><input id="cShort" type="checkbox" checked> short selling</label>
+        <button type="submit">Create competition</button>
+      </form>
+      <form id="addForm" class="row" style="margin-top:10px" autocomplete="off">
+        <select id="addComp" aria-label="Competition"></select>
+        <input id="addUser" placeholder="username to add" maxlength="32" aria-label="Username to add" style="max-width:200px">
+        <button type="submit" class="secondary">Add member</button>
+        <span class="muted">Leave start empty to open now, and end empty for no end date. Times are in your local time.</span>
+      </form>
+      <div id="compMsg" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const headers = () => AdminShell.headers();
+const compWhenA = (c) => c.status === "upcoming" ? `opens ${fmtTime(c.start_ts)}` : c.status === "ended" ? `ended ${fmtTime(c.end_ts)}` : c.end_ts ? `until ${fmtTime(c.end_ts)}` : "no end date";
+const compRulesA = (c) => { const r = []; if (!c.allow_options) r.push("no options"); if (!c.allow_shorting) r.push("no shorting"); return r.join(", ") || "all allowed"; };
+function cMsg(text, isErr) { const el = $("compMsg"); el.hidden = !text; el.textContent = text || ""; el.className = "msg" + (isErr ? " err" : ""); }
+
+async function onData() {
+  const comps = await api("/api/admin/competitions", headers());
+  const add = $("addComp"), keep = add.value; add.innerHTML = "";
+  for (const c of comps.filter((c) => c.status !== "ended")) add.insertAdjacentHTML("beforeend", `<option value="${esc(c.id)}">${esc(c.name)}</option>`);
+  if (keep) add.value = keep;
+  const tb = $("comps"); tb.innerHTML = "";
+  if (!comps.length) tb.innerHTML = '<tr><td colspan="8" class="muted">No competitions yet. Create one below, then share its join code or add members by username.</td></tr>';
+  for (const c of comps) {
+    tb.insertAdjacentHTML("beforeend",
+      `<tr><td class="l">${esc(c.name)}</td><td class="l"><code>${esc(c.code)}</code></td><td class="l">${esc(c.status)}</td><td class="l">${esc(compWhenA(c))}</td><td>${usd(c.starting_cash)}</td><td class="l">${esc(compRulesA(c))}</td><td>${esc(c.members)}</td><td>` +
+      `<button type="button" class="secondary" data-view="${esc(c.id)}">View results</button> ` +
+      (c.status === "ended" ? "" : `<button type="button" class="danger" data-end="${esc(c.id)}" data-name="${esc(c.name)}">End now</button> `) +
+      `<button type="button" class="danger" data-delc="${esc(c.id)}" data-name="${esc(c.name)}">Delete</button></td></tr>`);
+  }
+  applyGlossary(tb);
+}
+
+$("comps").addEventListener("click", async (e) => {
+  const v = e.target.closest("button[data-view]"), en = e.target.closest("button[data-end]"), dl = e.target.closest("button[data-delc]");
+  try {
+    if (v) { safeSet(sessionStorage, "pt_admin_scope", v.dataset.view); location.href = "/admin"; }
+    if (en && confirm(`End ${en.dataset.name} now? Trading closes and every result is frozen at its current value. This can't be undone.`)) {
+      await api(`/api/admin/competitions/${en.dataset.end}/end`, headers(), { method: "POST" }); cMsg(`${en.dataset.name} has ended`, false); AdminShell.refresh();
+    }
+    if (dl && confirm(`Delete ${dl.dataset.name} and every portfolio in it? This can't be undone.`)) {
+      await api(`/api/admin/competitions/${dl.dataset.delc}`, headers(), { method: "DELETE" }); cMsg(`Deleted ${dl.dataset.name}`, false); AdminShell.refresh();
+    }
+  } catch (err) { cMsg(err.message, true); }
+});
+const localTs = (v) => (v ? new Date(v).getTime() / 1000 : null);
+$("compForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { name: $("cName").value.trim(), allow_options: $("cOpt").checked, allow_shorting: $("cShort").checked };
+  if ($("cCash").value) body.starting_cash = parseFloat($("cCash").value);
+  if ($("cStart").value) body.start_ts = localTs($("cStart").value);
+  if ($("cEnd").value) body.end_ts = localTs($("cEnd").value);
+  try {
+    const c = await api("/api/admin/competitions", headers(), { method: "POST", body: JSON.stringify(body) });
+    cMsg(`Created ${c.name}. Join code: ${c.code} (share it with members, or add them by username below).`, false);
+    $("compForm").reset(); await AdminShell.refresh(); $("addComp").value = String(c.id);
+  } catch (err) { cMsg(err.message, true); }
+});
+$("addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = $("addComp").value, u = $("addUser").value.trim(); if (!id || !u) return;
+  try {
+    const r = await api(`/api/admin/competitions/${id}/members`, headers(), { method: "POST", body: JSON.stringify({ username: u }) });
+    cMsg(`Added ${r.username}`, false); $("addUser").value = ""; AdminShell.refresh();
+  } catch (err) { cMsg(err.message, true); }
+});
+
+AdminShell.start({ onData });
+</script>
+</body>
+</html>

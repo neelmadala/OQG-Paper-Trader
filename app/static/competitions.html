@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Competitions</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader</h1>
+  <nav>
+    <a href="/">Trade</a>
+    <a href="/activity">Activity</a>
+    <a href="/competitions" class="current">Competitions</a>
+  </nav>
+  <div class="row">
+    <a id="toAdmin" href="/admin" class="btn" hidden>Go to Admin Menu</a>
+    <span id="hdrUser" class="who-badge" hidden></span>
+    <input id="key" type="password" placeholder="Your API key (pt_...)" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<aside id="side" hidden>
+  <div class="side-head"><strong class="side-title">Portfolios</strong>
+    <button type="button" id="sideToggle" class="secondary side-toggle" aria-label="Collapse sidebar" title="Collapse sidebar">&laquo;</button></div>
+  <div id="sideList" class="side-list"></div>
+  <a class="side-link" href="/competitions">Join or create...</a>
+</aside>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="app" hidden>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2 id="who">Portfolio</h2>
+      </div>
+      <div id="compBanner" class="comp-banner" hidden></div>
+      <div class="muted">The portfolio you pick here is the one the Trade and Activity pages show.</div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Your portfolios and competitions</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="l">Portfolio</th><th class="l">Type</th><th>Equity</th><th>Return</th><th class="l" data-g="comp_status">Status</th><th></th></tr></thead>
+        <tbody id="pfList"></tbody>
+      </table></div>
+      <div class="pf-forms">
+        <form id="joinForm" class="row" autocomplete="off">
+          <input id="joinCode" placeholder="Competition join code" maxlength="40" autocapitalize="characters" spellcheck="false" aria-label="Competition join code" style="max-width:220px">
+          <button type="submit" id="joinBtn">Join competition</button>
+          <span class="muted" data-g="join_code">What is a join code?</span>
+        </form>
+        <form id="newPfForm" class="row" autocomplete="off">
+          <input id="newPfName" placeholder="New portfolio name" maxlength="40" aria-label="New portfolio name" style="max-width:220px">
+          <button type="submit" class="secondary" id="newPfBtn">Create portfolio</button>
+          <span class="muted" data-g="portfolio">What is a portfolio?</span>
+        </form>
+      </div>
+      <div id="pfMsg" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2 id="boardTitle">Leaderboard</h2>
+        <label class="row" style="gap:6px"><span class="muted">Show</span><select id="lbScope" aria-label="Leaderboard"></select></label>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-g="rank">#</th><th data-g="trader" class="l">Trader</th><th data-g="equity">Equity</th><th data-g="return">Return</th><th data-g="max_dd">Max DD</th><th data-g="trades">Trades</th><th data-g="win_rate">Win rate</th></tr></thead>
+        <tbody id="board"></tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Your API key</h2>
+      <p class="muted" style="margin-top:0">Lost your key, or did it end up somewhere it shouldn't be? Make a new one. The old key stops working right away, so update your scripts. The new key is shown only once.</p>
+      <div class="row"><button type="button" id="rotateBtn" class="danger">Make a new key</button></div>
+      <div id="rotateOut" class="msg key-reveal" style="margin-top:12px" hidden>
+        <div>Your new API key (shown <strong>only this once</strong>):</div>
+        <div class="row" style="margin-top:8px"><code id="rotateKey" class="key-text"></code>
+          <button type="button" id="rotateCopy">Copy</button></div>
+      </div>
+      <div id="rotateMsg" class="msg err" style="margin-top:12px" hidden></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let lbChoice = null;   // leaderboard picked by hand ("main" or a competition id); null = follow the portfolio being viewed
+
+function pfMsg(text, isErr) { const el = $("pfMsg"); el.hidden = !text; el.textContent = text || ""; el.className = "msg" + (isErr ? " err" : ""); }
+
+async function onData({ p, pfs, comps }) {
+  const byComp = Object.fromEntries(comps.map((c) => [c.id, c]));
+  // portfolios table
+  const list = $("pfList"); list.innerHTML = "";
+  for (const x of pfs) {
+    const comp = byComp[x.competition_id];
+    const type = x.is_default ? "Main" : x.competition_id ? `Competition${comp ? ": " + comp.name : ""}` : "Personal";
+    const status = comp ? `${comp.status} - ${compWhen(comp)}${comp.rank ? ` - rank ${comp.rank}` : ""}` : "";
+    const here = x.portfolio_id === p.portfolio_id;
+    list.insertAdjacentHTML("beforeend",
+      `<tr><td class="l">${esc(x.portfolio)}${here ? ' <span class="muted">(viewing)</span>' : ""}</td><td class="l">${esc(type)}</td><td>${usd(x.equity)}</td><td class="${cls(x.return_pct)}">${pct(x.return_pct)}</td><td class="l">${esc(status)}</td><td>` +
+      (here ? "" : `<button type="button" class="secondary" data-view="${esc(x.portfolio_id)}">Switch to</button> `) +
+      `<button type="button" class="secondary" data-open="${esc(x.portfolio_id)}">Trade</button> ` +
+      (!x.is_default && !x.competition_id ? `<button type="button" class="danger" data-del="${esc(x.portfolio_id)}" data-name="${esc(x.portfolio)}">Delete</button>` : "") +
+      `</td></tr>`);
+  }
+  applyGlossary(list);
+  // leaderboard picker
+  const sel = $("lbScope"); sel.innerHTML = '<option value="main">Everyone - main portfolios</option>';
+  for (const c of comps) sel.insertAdjacentHTML("beforeend", `<option value="${esc(c.id)}">${esc(c.name)}</option>`);
+  let pick = lbChoice != null ? lbChoice : p.competition ? String(p.competition.id) : "main";
+  if (![...sel.options].some((o) => o.value === pick)) pick = "main";
+  sel.value = pick;
+  await loadBoard(p, comps);
+}
+
+async function loadBoard(p, comps) {
+  const pick = $("lbScope").value;
+  const board = await api(pick === "main" ? "/api/leaderboard" : `/api/competitions/${pick}/leaderboard`, Shell.headers());
+  const c = (comps || Shell.ctx.comps).find((x) => String(x.id) === pick);
+  $("boardTitle").textContent = c ? `Leaderboard - ${c.name}` : "Leaderboard";
+  const me = (p || Shell.ctx.p).username;
+  const b = $("board"); b.innerHTML = "";
+  if (!board.length) b.innerHTML = '<tr><td colspan="7" class="muted">Nobody here yet</td></tr>';
+  for (const r of board) {
+    b.insertAdjacentHTML("beforeend",
+      `<tr><td>${r.rank}</td><td class="l">${esc(r.username)}${r.username === me ? " (you)" : ""}${r.frozen ? ' <span class="muted">(final)</span>' : ""}</td><td>${usd(r.equity)}</td><td class="${cls(r.return_pct)}">${pct(r.return_pct)}</td><td>${r.max_drawdown_pct.toFixed(2)}%</td><td>${r.trades}</td><td>${r.win_rate_pct == null ? "-" : r.win_rate_pct + "%"}</td></tr>`);
+  }
+}
+
+$("lbScope").addEventListener("change", async () => {
+  lbChoice = $("lbScope").value;
+  try { await loadBoard(); } catch (e) { Shell.status(e.message, true); }
+});
+
+$("pfList").addEventListener("click", async (e) => {
+  const v = e.target.closest("button[data-view]"), o = e.target.closest("button[data-open]"), d = e.target.closest("button[data-del]");
+  if (v) { Shell.setPortfolio(v.dataset.view); lbChoice = null; pfMsg(""); Shell.refresh(); }
+  if (o) { Shell.setPortfolio(o.dataset.open); location.href = "/"; }
+  if (d) {
+    if (!confirm(`Delete the portfolio "${d.dataset.name}" and everything in it?`)) return;
+    d.disabled = true;
+    try {
+      await api("/api/portfolios/" + encodeURIComponent(d.dataset.del), { "X-API-Key": Shell.key }, { method: "DELETE" });
+      if (Shell.pf === d.dataset.del) Shell.setPortfolio("");
+      pfMsg(`Deleted ${d.dataset.name}`, false); await Shell.refresh();
+    } catch (err) { pfMsg(err.message, true); d.disabled = false; }
+  }
+});
+$("joinForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = $("joinCode").value.trim(); if (!code) return;
+  $("joinBtn").disabled = true;
+  try {
+    const r = await api("/api/competitions/join", { "X-API-Key": Shell.key }, { method: "POST", body: JSON.stringify({ code }) });
+    $("joinCode").value = ""; lbChoice = null;
+    Shell.setPortfolio(r.portfolio_id); pfMsg(`Joined ${r.competition.name}. You are now viewing its portfolio.`, false);
+    await Shell.refresh();
+  } catch (err) { pfMsg(err.message, true); } finally { $("joinBtn").disabled = false; }
+});
+$("newPfForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("newPfName").value.trim(); if (!name) return;
+  $("newPfBtn").disabled = true;
+  try {
+    const r = await api("/api/portfolios", { "X-API-Key": Shell.key }, { method: "POST", body: JSON.stringify({ name }) });
+    $("newPfName").value = ""; lbChoice = null; Shell.setPortfolio(r.portfolio_id); pfMsg(`Created ${r.portfolio}. You are now viewing it.`, false);
+    await Shell.refresh();
+  } catch (err) { pfMsg(err.message, true); } finally { $("newPfBtn").disabled = false; }
+});
+
+$("rotateBtn").onclick = async () => {
+  if (!confirm("Make a new API key? Your current key stops working immediately, including in any running scripts.")) return;
+  $("rotateMsg").hidden = true;
+  try {
+    const r = await api("/api/rotate-key", Shell.headers(), { method: "POST" });
+    Shell.key = r.api_key; safeSet(localStorage, "pt_api_key", r.api_key);   // keep this browser signed in
+    $("rotateKey").textContent = r.api_key; $("rotateOut").hidden = false; $("rotateCopy").textContent = "Copy";
+  } catch (err) { $("rotateMsg").textContent = err.message; $("rotateMsg").hidden = false; }
+};
+$("rotateCopy").onclick = async () => { $("rotateCopy").textContent = (await copyText($("rotateKey").textContent)) ? "Copied" : "Select the key and copy it"; };
+Shell.start({ onData, onSwitch: () => { lbChoice = null; pfMsg(""); } });
+</script>
+</body>
+</html>

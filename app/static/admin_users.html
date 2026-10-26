@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OQG Paper Trader - Admin Users</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>OQG Paper Trader - Admin</h1>
+  <nav>
+    <a href="/admin">Overview</a>
+    <a href="/admin/users" class="current">Users</a>
+    <a href="/admin/competitions">Competitions</a>
+  </nav>
+  <div class="row">
+    <a href="/" class="btn">Go to User Menu</a>
+    <span id="adminWho" class="who-badge"></span>
+    <input id="token" type="password" placeholder="Admin token or admin API key" size="30" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="logout" class="secondary" hidden>Disconnect</button>
+  </div>
+</header>
+<main>
+  <div id="status" class="msg" hidden></div>
+  <div id="app" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2 id="title">Accounts</h2>
+        <div class="row">
+          <input id="search" type="search" placeholder="Search username" autocomplete="off" aria-label="Search usernames" style="max-width:200px">
+          <label class="row" style="gap:6px"><span class="muted">Sort</span>
+            <select id="sort" aria-label="Sort accounts">
+              <option value="new">Newest first</option>
+              <option value="name">Username</option>
+              <option value="ret">Main return, best first</option>
+              <option value="active">Last trade, recent first</option>
+              <option value="trades">Most trades</option>
+            </select></label>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th class="l">Username</th><th class="l">Joined</th><th class="l">Last trade</th><th>Portfolios</th>
+          <th class="l">Competitions</th><th>Main equity</th><th>Main return</th><th>Trades</th><th class="l">Role</th><th></th>
+        </tr></thead>
+        <tbody id="users"></tbody>
+      </table></div>
+      <div id="keyOut" class="msg key-reveal" style="margin-top:12px" hidden>
+        <div>New API key for <strong id="keyUser"></strong> (shown <strong>only this once</strong>; send it to them privately):</div>
+        <div class="row" style="margin-top:8px"><code id="keyText" class="key-text"></code>
+          <button type="button" id="keyCopy">Copy</button>
+          <button type="button" id="keyHide" class="secondary">Done</button></div>
+      </div>
+      <div id="userMsg" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+    <div style="display:grid;gap:16px;margin-top:16px">
+    <div class="card">
+      <h2 id="codes-top">Make sign-up codes</h2>
+      <p class="muted" style="margin-top:0">Give each member their own code. A code makes one account, then it stops working. Members enter it on the Trade page, under "Create your account".</p>
+      <form id="genForm" class="comp-form" autocomplete="off" style="margin-top:0">
+        <label class="muted">How many <input id="gCount" type="number" min="1" max="200" value="1" style="width:80px"></label>
+        <label class="muted">Label <input id="gLabel" maxlength="60" placeholder="e.g. week 1 signups" style="width:200px"></label>
+        <label class="muted">Uses per code <input id="gUses" type="number" min="1" max="1000" value="1" style="width:80px"></label>
+        <label class="muted">Expires in (days) <input id="gDays" type="number" min="1" max="3650" placeholder="never" style="width:100px"></label>
+        <button type="submit">Make codes</button>
+      </form>
+      <div id="fresh" hidden style="margin-top:12px">
+        <div class="row" style="margin-bottom:6px"><strong id="freshTitle"></strong><button type="button" id="copyFresh" class="secondary">Copy these codes</button></div>
+        <textarea id="freshBox" readonly rows="4" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace"></textarea>
+      </div>
+      <div id="codeMsg" class="msg" style="margin-top:12px" hidden></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>All codes</h2>
+        <div class="row">
+          <label class="row" style="gap:6px"><span class="muted">Show</span>
+            <select id="filter" aria-label="Filter codes"><option value="all">All</option><option value="open">Still usable</option><option value="used">Used up</option><option value="dead">Revoked or expired</option></select></label>
+          <button type="button" id="copyOpen" class="secondary">Copy all usable codes</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="l">Code</th><th class="l">Label</th><th class="l">Status</th><th>Used</th><th class="l">Used by</th><th class="l">Expires</th><th></th></tr></thead>
+        <tbody id="codes"></tbody>
+      </table></div>
+    </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>Admin activity</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="l">When</th><th class="l">Who</th><th class="l">Action</th><th class="l">Details</th></tr></thead>
+        <tbody id="log"></tbody>
+      </table></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span class="muted">OQG Paper Trader</span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+<script src="/static/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const headers = () => AdminShell.headers();
+const isOwner = () => AdminShell.role === "owner";
+let users = [];
+let codes = [];
+const SORTS = {
+  new: (a, b) => b.user_id - a.user_id,
+  name: (a, b) => a.username.localeCompare(b.username),
+  ret: (a, b) => (b.main_return_pct ?? -1e9) - (a.main_return_pct ?? -1e9),
+  active: (a, b) => (b.last_trade_at ?? 0) - (a.last_trade_at ?? 0),
+  trades: (a, b) => b.trades - a.trades,
+};
+
+const day = (ts) => new Date(ts * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+function msg(text, isErr) { const el = $("userMsg"); el.hidden = !text; el.textContent = text || ""; el.className = "msg" + (isErr ? " err" : ""); }
+
+function render() {
+  const q = $("search").value.trim().toLowerCase();
+  const list = users.filter((u) => !q || u.username.toLowerCase().includes(q)).sort(SORTS[$("sort").value]);
+  $("title").textContent = q ? `Accounts (${list.length} of ${users.length})` : `Accounts (${users.length})`;
+  const tb = $("users"); tb.innerHTML = "";
+  if (!list.length) tb.innerHTML = `<tr><td colspan="10" class="muted">${users.length ? "No usernames match" : "No accounts yet"}</td></tr>`;
+  for (const u of list) {
+    tb.insertAdjacentHTML("beforeend",
+      `<tr><td class="l">${esc(u.username)}</td><td class="l" title="${esc(fmtTime(u.created_at))}">${esc(day(u.created_at))}</td><td class="l"${u.last_trade_at ? ` title="${esc(fmtTime(u.last_trade_at))}"` : ""}>${u.last_trade_at ? esc(when(u.last_trade_at)) : '<span class="muted">never</span>'}</td><td>${esc(u.portfolios)}</td><td class="l" style="white-space:normal">${esc(u.competitions.join(", ")) || '<span class="muted">-</span>'}</td><td>${usd(u.main_equity)}</td><td class="${cls(u.main_return_pct)}">${u.main_return_pct == null ? "-" : pct(u.main_return_pct)}</td><td>${esc(u.trades)}</td><td class="l">${u.is_admin ? '<span class="badge">Admin</span>' : '<span class="muted">Member</span>'}</td><td style="white-space:normal;min-width:170px"><div class="row act">` +
+      (u.main_portfolio_id ? `<button type="button" class="danger" data-reset="${esc(u.main_portfolio_id)}" data-name="${esc(u.username)}">Reset main</button>` : "") + `${isOwner() ? `<button type="button" class="secondary" data-role="${esc(u.user_id)}" data-make="${u.is_admin ? 0 : 1}" data-name="${esc(u.username)}">${u.is_admin ? "Remove admin" : "Make admin"}</button>` : ""}${u.is_admin && !isOwner() ? '<span class="muted">owner only</span>' : `<button type="button" class="secondary" data-key="${esc(u.user_id)}" data-name="${esc(u.username)}">New key</button><button type="button" class="danger" data-del="${esc(u.user_id)}" data-name="${esc(u.username)}">Delete</button>`}</div></td></tr>`);
+  }
+}
+
+async function onData() {
+  [users, codes] = await Promise.all([api("/api/admin/users", headers()), api("/api/admin/invites", headers())]); render(); renderCodes();
+  const log = await api("/api/admin/log?limit=50", headers());
+  $("log").innerHTML = log.length ? "" : '<tr><td colspan="4" class="muted">Nothing yet</td></tr>';
+  for (const r of log) $("log").insertAdjacentHTML("beforeend", `<tr><td class="l" title="${esc(fmtTime(r.ts))}">${esc(when(r.ts))}</td><td class="l">${esc(r.actor)}</td><td class="l">${esc(r.action)}</td><td class="l">${esc(r.detail)}</td></tr>`);
+}
+
+$("keyCopy").onclick = async () => { $("keyCopy").textContent = (await copyText($("keyText").textContent)) ? "Copied" : "Select the key and copy it"; };
+$("keyHide").onclick = () => { $("keyOut").hidden = true; $("keyText").textContent = ""; };
+$("search").addEventListener("input", render);
+$("sort").addEventListener("change", render);
+$("users").addEventListener("click", async (e) => {
+  const ro = e.target.closest("button[data-role]");
+  if (ro) {
+    const make = ro.dataset.make === "1";
+    if (!confirm(make ? `Make ${ro.dataset.name} an admin? They will be able to sign in to these pages with their API key and manage members, competitions and codes.` : `Remove admin from ${ro.dataset.name}?`)) return;
+    try { await api(`/api/admin/users/${ro.dataset.role}/admin`, { ...headers(), "Content-Type": "application/json" }, { method: "PUT", body: JSON.stringify({ is_admin: make }) }); msg(make ? `${ro.dataset.name} is now an admin` : `${ro.dataset.name} is no longer an admin`, false); AdminShell.refresh(); }
+    catch (err) { msg(err.message, true); }
+    return;
+  }
+  const k = e.target.closest("button[data-key]");
+  if (k) {
+    if (!confirm(`Make a new API key for ${k.dataset.name}? Their current key stops working immediately.`)) return;
+    try {
+      const r = await api(`/api/admin/users/${k.dataset.key}/key`, headers(), { method: "POST" });
+      $("keyUser").textContent = r.username; $("keyText").textContent = r.api_key; $("keyOut").hidden = false; $("keyCopy").textContent = "Copy";
+      msg("", false);
+    } catch (err) { msg(err.message, true); }
+    return;
+  }
+  const d = e.target.closest("button[data-del]");
+  if (d) {
+    if (!confirm(`Delete the account ${d.dataset.name}? This permanently removes the account, all of its portfolios, orders, positions and history. Their sign-up code stays used. This can't be undone.`)) return;
+    try { await api(`/api/admin/users/${d.dataset.del}`, headers(), { method: "DELETE" }); msg(`Deleted ${d.dataset.name}`, false); AdminShell.refresh(); }
+    catch (err) { msg(err.message, true); }
+    return;
+  }
+  const b = e.target.closest("button[data-reset]"); if (!b) return;
+  if (!confirm(`Reset ${b.dataset.name}'s main portfolio? This deletes its orders, positions and history. Their other portfolios are not touched.`)) return;
+  try { await api(`/api/admin/portfolios/${b.dataset.reset}/reset`, headers(), { method: "POST" }); msg(`Reset ${b.dataset.name}'s main portfolio`, false); AdminShell.refresh(); }
+  catch (err) { msg(err.message, true); }
+});
+
+const usable = (c) => c.status === "unused" || c.status === "partly used";
+
+function cmsg(text, isErr) { const el = $("codeMsg"); el.hidden = !text; el.textContent = text || ""; el.className = "msg" + (isErr ? " err" : ""); }
+
+function renderCodes() {
+  const f = $("filter").value;
+  const list = codes.filter((c) => f === "all" || (f === "open" && usable(c)) || (f === "used" && c.status === "used") || (f === "dead" && (c.status === "revoked" || c.status === "expired")));
+  const tb = $("codes"); tb.innerHTML = "";
+  if (!list.length) tb.innerHTML = '<tr><td colspan="7" class="muted">No codes here. Make some above.</td></tr>';
+  for (const c of list) {
+    tb.insertAdjacentHTML("beforeend",
+      `<tr><td class="l"><code>${esc(c.code)}</code></td><td class="l">${esc(c.label || "")}</td><td class="l">${esc(c.status)}</td><td>${esc(c.uses)} / ${esc(c.max_uses)}</td><td class="l">${esc(c.used_by.join(", "))}</td><td class="l">${c.expires_at ? esc(fmtTime(c.expires_at)) : "never"}</td><td>` +
+      (usable(c) ? `<button type="button" class="secondary" data-copy="${esc(c.code)}">Copy</button> <button type="button" class="danger" data-revoke="${esc(c.id)}" data-code="${esc(c.code)}">Revoke</button>` : "") + `</td></tr>`);
+  }
+}
+
+
+$("filter").addEventListener("change", renderCodes);
+$("genForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { count: parseInt($("gCount").value, 10) || 1, max_uses: parseInt($("gUses").value, 10) || 1 };
+  if ($("gLabel").value.trim()) body.label = $("gLabel").value.trim();
+  const days = parseFloat($("gDays").value);
+  if (days > 0) body.expires_at = Date.now() / 1000 + days * 86400;
+  try {
+    const made = await api("/api/admin/invites", headers(), { method: "POST", body: JSON.stringify(body) });
+    $("fresh").hidden = false;
+    $("freshTitle").textContent = `Made ${made.length} code${made.length === 1 ? "" : "s"}`;
+    $("freshBox").value = made.map((c) => c.code).join("\n");
+    cmsg("", false); await AdminShell.refresh();
+  } catch (err) { cmsg(err.message, true); }
+});
+$("copyFresh").onclick = async () => { $("copyFresh").textContent = (await copyText($("freshBox").value)) ? "Copied" : "Select the text and copy it"; };
+$("copyOpen").onclick = async () => {
+  const open = codes.filter(usable).map((c) => c.code).join("\n");
+  cmsg(open ? ((await copyText(open)) ? "Copied every usable code" : "Couldn't copy automatically") : "No usable codes", !open);
+};
+$("codes").addEventListener("click", async (e) => {
+  const cp = e.target.closest("button[data-copy]"), rv = e.target.closest("button[data-revoke]");
+  if (cp) { await copyText(cp.dataset.copy); cp.textContent = "Copied"; setTimeout(() => (cp.textContent = "Copy"), 1200); }
+  if (rv && confirm(`Revoke ${rv.dataset.code}? It will stop working.`)) {
+    try { await api(`/api/admin/invites/${rv.dataset.revoke}`, headers(), { method: "DELETE" }); cmsg(`Revoked ${rv.dataset.code}`, false); AdminShell.refresh(); }
+    catch (err) { cmsg(err.message, true); }
+  }
+});
+
+AdminShell.start({ onData });
+</script>
+</body>
+</html>
